@@ -31,3 +31,8 @@ jobs:
           git add status.txt
           git commit -m "Mise à jour statut" || exit 0
           git push
+- name: Archive screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: view-from-bot
+          path: debug_map.png
