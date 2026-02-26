@@ -2,53 +2,57 @@ import os
 from playwright.sync_api import sync_playwright
 from PIL import Image
 
+def get_color_status(img, x, y):
+    # On regarde une petite zone de 5x5 pixels pour être plus fiable
+    r_total, g_total, b_total = 0, 0, 0
+    count = 0
+    for i in range(x-2, x+3):
+        for j in range(y-2, y+3):
+            r, g, b = img.getpixel((i, j))
+            r_total += r
+            g_total += g
+            b_total += b
+            count += 1
+    
+    avg_r, avg_g, avg_b = r_total/count, g_total/count, b_total/count
+    print(f"Zone ({x},{y}) -> R:{avg_r:.1f} G:{avg_g:.1f} B:{avg_b:.1f}")
+    
+    # Logique Skiplan : Le vert est très vif (G > 150), le rouge est (R > 150)
+    if avg_g > avg_r + 30 and avg_g > 100:
+        return "1" # OUVERT
+    else:
+        return "0" # FERMÉ (ou Orange/Attente)
+
 def run():
     with sync_playwright() as p:
-        # On augmente la taille de la fenêtre pour capter le haut
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            viewport={'width': 1920, 'height': 1500} # On passe à 1500 de haut
-        )
+        context = browser.new_context(viewport={'width': 1920, 'height': 1500})
         page = context.new_page()
 
-        # URL directe plein écran
         url = "https://valfrejus.digisnow.app/map/1/fr?fullscreen=true"
         
         try:
-            print(f"Connexion à {url}...")
             page.goto(url, wait_until="networkidle", timeout=60000)
+            page.wait_for_timeout(15000) # On laisse le temps aux pastilles d'apparaître
             
-            # On attend 15 secondes que TOUT le domaine s'affiche
-            page.wait_for_timeout(15000) 
-
-            # Screenshot complet pour vérification
             screenshot_path = "debug_map.png"
             page.screenshot(path=screenshot_path)
-
-            # Analyse des pixels
             img = Image.open(screenshot_path)
-            
-            # --- ANALYSE ARRONDAZ (ID 1991) ---
-            # Coordonnées à ajuster selon ton image reçue
-            pix_arrondaz = img.getpixel((534, 905)) 
-            status_arrondaz = "OPEN" if pix_arrondaz[1] > 150 else "CLOSED"
-            
-            # --- ANALYSE PUNTA BAGNA (ID 2010) ---
-            # ICI : Il faudra me donner les coordonnées X,Y 
-            # quand tu verras le haut de la carte sur l'image !
-            # Pour l'instant on met des coordonnées probables (ex: 1005, 403)
-            pix_punta = img.getpixel((1005, 403)) 
-            status_punta = "OPEN" if pix_punta[1] > 150 else "CLOSED"
 
-            # On crée le fichier de statut pour l'ESP32
-            # Format simple : ARRONDAZ:1,PUNTA:1 (1=Ouvert, 0=Fermé)
-            res_arr = "1" if status_arrondaz == "OPEN" else "0"
-            res_pun = "1" if status_punta == "OPEN" else "0"
+            # Utilisation de tes coordonnées précises
+            # TCD Arrondaz : X 255, Y 1088
+            status_arrondaz = get_color_status(img, 255, 1088)
             
+            # TSD Punta Bagna : X 827, Y 480
+            status_punta = get_color_status(img, 827, 480)
+
+            # Ecriture du fichier pour l'ESP32
+            # Format : A:1,P:1 (A=Arrondaz, P=Punta)
+            result = f"A:{status_arrondaz},P:{status_punta}"
             with open("status.txt", "w") as f:
-                f.write(f"A:{res_arr},P:{res_pun}")
-                
-            print(f"Résultats -> Arrondaz: {status_arrondaz}, Punta: {status_punta}")
+                f.write(result)
+            
+            print(f"Fichier status.txt mis à jour : {result}")
 
         except Exception as e:
             print(f"Erreur : {e}")
