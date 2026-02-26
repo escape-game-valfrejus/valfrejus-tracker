@@ -2,11 +2,13 @@ name: Update Ski Status
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
-  workflow_dispatch:
+    # Se lance toutes les 15 minutes, entre 8h et 18h (UTC)
+    # Note : 7h UTC = 8h ou 9h à Valfréjus selon l'heure d'été/hiver
+    - cron: '*/15 7-17 * * *'
+  workflow_dispatch: # Permet de le lancer à la main pour tester
 
 permissions:
-  contents: write
+  contents: write # Autorisation cruciale pour que le robot puisse modifier status.txt
 
 jobs:
   scrape:
@@ -22,23 +24,19 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install playwright Pillow
+          pip install playwright Pillow pytz
           playwright install chromium
 
-      - name: Run Scraper
+      - name: Run Scraper Loop
+        # On définit une variable d'environnement pour que Git puisse pusher
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scraper.py
 
-      - name: Upload screenshot
+      - name: Upload debug screenshot
+        # En cas d'erreur, on garde une trace de ce que le robot a vu
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: view-from-bot
+          name: error-screenshot
           path: debug_map.png
-          if-no-files-found: ignore
-
-      - name: Commit and Push changes
-        run: |
-          git config --global user.name "SkiBot"
-          git config --global user.email "bot@github.com"
-          git add status.txt
-          git commit -m "Mise à jour statut" || exit 0
-          git push
