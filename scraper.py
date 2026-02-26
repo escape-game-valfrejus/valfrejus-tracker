@@ -1,60 +1,59 @@
 import os
 from playwright.sync_api import sync_playwright
+from PIL import Image
 
 def run():
     with sync_playwright() as p:
-        # On lance le navigateur
+        # On augmente la taille de la fenêtre pour capter le haut
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+        context = browser.new_context(
+            viewport={'width': 1920, 'height': 1500} # On passe à 1500 de haut
+        )
         page = context.new_page()
 
-        # Ton nouveau lien direct
+        # URL directe plein écran
         url = "https://valfrejus.digisnow.app/map/1/fr?fullscreen=true"
         
         try:
             print(f"Connexion à {url}...")
             page.goto(url, wait_until="networkidle", timeout=60000)
             
-            # On attend que les données météo/pistes soient chargées
-            page.wait_for_timeout(10000) 
+            # On attend 15 secondes que TOUT le domaine s'affiche
+            page.wait_for_timeout(15000) 
 
-            # Fonctions pour extraire le statut
-            # Le site utilise souvent des classes CSS ou des attributs 'data-id'
-            def get_status(asset_id):
-                # On cherche l'élément qui a l'ID de la remontée
-                # Dans ton JSON, Arrondaz = 1991 et Punta Bagna = 1994 (ou 2010 selon le picto)
-                # On va essayer de trouver l'élément par son ID d'asset
-                try:
-                    # On cherche la pastille de couleur associée à l'asset
-                    selector = f"text={asset_id}" 
-                    # Note: Si le sélecteur texte ne marche pas, on peut chercher le rond de couleur
-                    # Mais le plus simple est de regarder le statut dans la liste si elle existe
-                    return "OPEN" # Par défaut pour le test
-                except:
-                    return "CLOSED"
+            # Screenshot complet pour vérification
+            screenshot_path = "debug_map.png"
+            page.screenshot(path=screenshot_path)
 
-            # Mise à jour pour tes deux remontées
-            # On va créer un fichier JSON simple pour l'ESP32
-            # TCD Arrondaz (ID 1991) / TSD Punta Bagna (ID 2010 ou 1994)
+            # Analyse des pixels
+            img = Image.open(screenshot_path)
             
-            # ASTUCE : Pour debugger, on prend une photo
-            page.screenshot(path="debug_map.png")
+            # --- ANALYSE ARRONDAZ (ID 1991) ---
+            # Coordonnées à ajuster selon ton image reçue
+            pix_arrondaz = img.getpixel((534, 905)) 
+            status_arrondaz = "OPEN" if pix_arrondaz[1] > 150 else "CLOSED"
             
-            # Pour l'instant on écrit un statut fixe pour tester la communication
-            # Je vais te donner une méthode encore plus précise si tu me confirmes 
-            # que 'debug_map.png' montre bien les pastilles.
-            
-            status_text = "ARRONDAZ:OPEN\nPUNTA_BAGNA:OPEN"
+            # --- ANALYSE PUNTA BAGNA (ID 2010) ---
+            # ICI : Il faudra me donner les coordonnées X,Y 
+            # quand tu verras le haut de la carte sur l'image !
+            # Pour l'instant on met des coordonnées probables (ex: 1005, 403)
+            pix_punta = img.getpixel((1005, 403)) 
+            status_punta = "OPEN" if pix_punta[1] > 150 else "CLOSED"
+
+            # On crée le fichier de statut pour l'ESP32
+            # Format simple : ARRONDAZ:1,PUNTA:1 (1=Ouvert, 0=Fermé)
+            res_arr = "1" if status_arrondaz == "OPEN" else "0"
+            res_pun = "1" if status_punta == "OPEN" else "0"
             
             with open("status.txt", "w") as f:
-                f.write(status_text)
+                f.write(f"A:{res_arr},P:{res_pun}")
                 
-            print("Scan terminé avec succès.")
+            print(f"Résultats -> Arrondaz: {status_arrondaz}, Punta: {status_punta}")
 
         except Exception as e:
             print(f"Erreur : {e}")
             with open("status.txt", "w") as f:
-                f.write("ERROR")
+                f.write("A:0,P:0")
 
         browser.close()
 
