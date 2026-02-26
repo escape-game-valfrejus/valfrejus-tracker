@@ -4,41 +4,56 @@ from PIL import Image
 
 def run():
     with sync_playwright() as p:
-        # 1. On lance un navigateur identique à un humain
         browser = p.chromium.launch(headless=True)
+        # On simule un écran plus grand pour être sûr que la carte s'affiche bien
         context = browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            viewport={'width': 1920, 'height': 1200},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         )
         page = context.new_page()
 
-        # 2. On charge la page (on utilise l'URL du widget directement pour être plus léger)
-        url = "https://live.skitrak.com/valfrejus/" 
-        print(f"Chargement de {url}...")
-        page.goto(url, wait_until="networkidle", timeout=60000)
+        # URL officielle du plan interactif
+        url = "https://www.valfrejus.com/plan-des-pistes/" 
         
-        # 3. On attend que les pastilles de couleur apparaissent (important !)
-        page.wait_for_timeout(10000) 
+        try:
+            print(f"Connexion à {url}...")
+            # On attend que la page soit chargée
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            
+            # On attend un peu plus pour que les scripts de la carte s'activent
+            print("Attente du rendu de la carte...")
+            page.wait_for_timeout(15000) 
 
-        # 4. On prend une photo de la zone précise (Asset 1991)
-        # On définit une petite zone autour de X=534, Y=905 pour l'analyse
-        screenshot_path = "check.png"
-        page.screenshot(path=screenshot_path)
+            # On prend la capture d'écran
+            screenshot_path = "check.png"
+            page.screenshot(path=screenshot_path, full_page=False)
 
-        # 5. Analyse de la couleur du pixel
-        img = Image.open(screenshot_path)
-        # On vérifie la couleur au point exact (ajustement possible selon le rendu)
-        pixel = img.getpixel((534, 905)) 
-        r, g, b = pixel[0], pixel[1], pixel[2]
+            # Analyse du pixel (534, 905)
+            img = Image.open(screenshot_path)
+            # On vérifie si l'image est assez grande
+            width, height = img.size
+            print(f"Capture réussie : {width}x{height}")
 
-        # Logique simplifiée : si le Vert est dominant -> OPEN
-        status = "OPEN" if g > r and g > 150 else "CLOSED"
-        
-        print(f"Couleur détectée (RGB): {r},{g},{b} -> Statut: {status}")
+            # On récupère la couleur
+            pixel = img.getpixel((534, 905)) 
+            r, g, b = pixel[0], pixel[1], pixel[2]
+            print(f"Couleur détectée à (534,905) -> R:{r} G:{g} B:{b}")
 
-        # 6. Sauvegarde du résultat dans un fichier texte
+            # Logique : Vert dominant = OPEN, sinon CLOSED
+            # (Le vert de Skiplan est environ R:30, G:180, B:30)
+            if g > r + 40 and g > 100:
+                status = "OPEN"
+            else:
+                status = "CLOSED"
+            
+        except Exception as e:
+            print(f"Erreur lors du scan : {e}")
+            status = "ERROR"
+
+        # On écrit le résultat
         with open("status.txt", "w") as f:
             f.write(status)
+        print(f"Résultat sauvegardé : {status}")
 
         browser.close()
 
